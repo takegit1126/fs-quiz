@@ -727,6 +727,11 @@
       background-color: rgb(30 41 59/var(--tw-bg-opacity, 1))
     }
 
+    .bg-slate-900 {
+      --tw-bg-opacity: 1;
+      background-color: rgb(15 23 42/var(--tw-bg-opacity, 1))
+    }
+
     .bg-white {
       --tw-bg-opacity: 1;
       background-color: rgb(255 255 255/var(--tw-bg-opacity, 1))
@@ -908,6 +913,11 @@
     .text-rose-900 {
       --tw-text-opacity: 1;
       color: rgb(136 19 55/var(--tw-text-opacity, 1))
+    }
+
+    .text-slate-300 {
+      --tw-text-opacity: 1;
+      color: rgb(203 213 225/var(--tw-text-opacity, 1))
     }
 
     .text-slate-400 {
@@ -1104,7 +1114,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
     import {
-      getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+      getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged
     } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
     import {
       getFirestore, doc, setDoc, getDoc
@@ -1124,10 +1134,34 @@
     const db = getFirestore(app);
     const provider = new GoogleAuthProvider();
 
+    // リダイレクト経由で戻ってきた場合の結果回収
+    getRedirectResult(auth).catch((err) => {
+      console.error('リダイレクトログイン失敗', err);
+    });
+
+    // ポップアップが塞がれる環境向けのフォールバック対象コード
+    const REDIRECT_FALLBACK_CODES = [
+      'auth/popup-blocked',
+      'auth/popup-closed-by-user',
+      'auth/cancelled-popup-request',
+      'auth/operation-not-supported-in-this-environment'
+    ];
+
     // React側（Babelスクリプト）から呼び出せるように window に橋渡し
     window.__fsQuizCloud = {
       onAuthChange: (callback) => onAuthStateChanged(auth, callback),
-      signIn: () => signInWithPopup(auth, provider),
+      signIn: async () => {
+        try {
+          return await signInWithPopup(auth, provider);
+        } catch (err) {
+          // ポップアップ不可ならリダイレクト方式へ切り替え
+          if (err && REDIRECT_FALLBACK_CODES.includes(err.code)) {
+            await signInWithRedirect(auth, provider);
+            return null;
+          }
+          throw err;
+        }
+      },
       signOutUser: () => signOut(auth),
       save: async (uid, payload) => {
         await setDoc(doc(db, 'users', uid), {
@@ -2255,6 +2289,9 @@
       useRef
     } = React;
 
+    // 端末が最新ファイルを読めてるか確認用のビルド識別子
+    const BUILD_ID = 'build-8';
+
     // テキストファイルをパースして問題データに変換する強力なエンジン
     const parseFileContent = (filename, content) => {
       // 不要なテキストを除去
@@ -2697,7 +2734,9 @@
           className: "mt-2 text-xs text-rose-600 break-all"
         }, "エラー: ", authError))), saveError && /*#__PURE__*/React.createElement("div", {
           className: "mb-6 p-3 bg-amber-50 border border-amber-300 rounded-lg text-xs text-amber-800 text-left"
-        }, "⚠️ 保存に失敗しました。データ量が多すぎる可能性があります。不要なファイルを消してから再度お試しください。"), /*#__PURE__*/React.createElement("label", {
+        }, "⚠️ 保存に失敗しました。データ量が多すぎる可能性があります。不要なファイルを消してから再度お試しください。"), /*#__PURE__*/React.createElement("div", {
+          className: "mb-6 p-3 bg-slate-900 rounded-lg text-left font-mono text-[10px] leading-relaxed text-slate-300 break-all"
+        }, /*#__PURE__*/React.createElement("div", null, "build: ", BUILD_ID), /*#__PURE__*/React.createElement("div", null, "host: ", window.location.hostname), /*#__PURE__*/React.createElement("div", null, "firebase: ", window.__fsQuizCloud ? 'loaded' : 'NOT loaded'), /*#__PURE__*/React.createElement("div", null, "authReady: ", String(authReady)), /*#__PURE__*/React.createElement("div", null, "uid: ", cloudUser ? cloudUser.uid.slice(0, 10) + '...' : 'none'), /*#__PURE__*/React.createElement("div", null, "sync: ", syncStatus), /*#__PURE__*/React.createElement("div", null, "files: ", loadedFiles.length)), /*#__PURE__*/React.createElement("label", {
           className: "cursor-pointer inline-flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-blue-300 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors"
         }, /*#__PURE__*/React.createElement("span", {
           className: "text-blue-600 font-bold"
