@@ -2290,7 +2290,7 @@
     } = React;
 
     // 端末が最新ファイルを読めてるか確認用のビルド識別子
-    const BUILD_ID = 'build-8';
+    const BUILD_ID = 'build-9';
 
     // テキストファイルをパースして問題データに変換する強力なエンジン
     const parseFileContent = (filename, content) => {
@@ -2436,44 +2436,65 @@
       const [authReady, setAuthReady] = useState(false);
       const [syncStatus, setSyncStatus] = useState('idle'); // idle | syncing | synced | error
       const [authError, setAuthError] = useState('');
+      const [cloudLoaded, setCloudLoaded] = useState(false);
       const skipNextCloudSave = useRef(false);
 
-      // ログイン状態の監視 起動時に一度だけ登録
+      // Firebaseモジュールは type="module" のため遅れて読み込まれる
+      // 準備できるまで待ってから監視を登録
       useEffect(() => {
-        if (!window.__fsQuizCloud) {
-          // オフラインなどでFirebaseモジュールが読めなかった場合
-          setAuthReady(true);
-          return;
-        }
-        const unsubscribe = window.__fsQuizCloud.onAuthChange(async user => {
+        let cancelled = false;
+        let unsubscribe = null;
+        let timer = null;
+        const handleUser = async user => {
           setCloudUser(user);
           setAuthReady(true);
-          if (user) {
-            setSyncStatus('syncing');
-            try {
-              const cloudData = await window.__fsQuizCloud.load(user.uid);
-              if (cloudData && Array.isArray(cloudData.loadedFiles) && cloudData.loadedFiles.length > 0) {
-                // クラウドにデータがあれば それを優先して復元
-                skipNextCloudSave.current = true;
-                setLoadedFiles(cloudData.loadedFiles);
-                setUserAnswers(cloudData.userAnswers || {});
-              } else {
-                // クラウドが空なら 今の手元データをアップロード
-                await window.__fsQuizCloud.save(user.uid, {
-                  loadedFiles,
-                  userAnswers
-                });
-              }
-              setSyncStatus('synced');
-            } catch (err) {
-              console.warn('クラウド同期失敗', err);
-              setSyncStatus('error');
-            }
-          } else {
+          if (!user) {
             setSyncStatus('idle');
+            return;
           }
-        });
-        return () => unsubscribe && unsubscribe();
+          setSyncStatus('syncing');
+          try {
+            const cloudData = await window.__fsQuizCloud.load(user.uid);
+            if (cloudData && Array.isArray(cloudData.loadedFiles) && cloudData.loadedFiles.length > 0) {
+              // クラウドにデータがあれば それを優先して復元
+              skipNextCloudSave.current = true;
+              setLoadedFiles(cloudData.loadedFiles);
+              setUserAnswers(cloudData.userAnswers || {});
+            } else {
+              // クラウドが空なら 今の手元データをアップロード
+              await window.__fsQuizCloud.save(user.uid, {
+                loadedFiles,
+                userAnswers
+              });
+            }
+            setSyncStatus('synced');
+          } catch (err) {
+            console.warn('クラウド同期失敗', err);
+            setSyncStatus('error');
+          }
+        };
+        const attach = () => {
+          if (cancelled || unsubscribe || !window.__fsQuizCloud) return false;
+          setCloudLoaded(true);
+          unsubscribe = window.__fsQuizCloud.onAuthChange(handleUser);
+          return true;
+        };
+        if (!attach()) {
+          // 読み込み完了まで短い間隔で再試行
+          timer = setInterval(() => {
+            if (attach() && timer) clearInterval(timer);
+          }, 200);
+          // 15秒で断念 オフライン時はローカル動作のみ
+          setTimeout(() => {
+            if (timer) clearInterval(timer);
+            if (!cancelled && !unsubscribe) setAuthReady(true);
+          }, 15000);
+        }
+        return () => {
+          cancelled = true;
+          if (timer) clearInterval(timer);
+          if (unsubscribe) unsubscribe();
+        };
         // eslint-disable-next-line
       }, []);
 
@@ -2736,7 +2757,7 @@
           className: "mb-6 p-3 bg-amber-50 border border-amber-300 rounded-lg text-xs text-amber-800 text-left"
         }, "⚠️ 保存に失敗しました。データ量が多すぎる可能性があります。不要なファイルを消してから再度お試しください。"), /*#__PURE__*/React.createElement("div", {
           className: "mb-6 p-3 bg-slate-900 rounded-lg text-left font-mono text-[10px] leading-relaxed text-slate-300 break-all"
-        }, /*#__PURE__*/React.createElement("div", null, "build: ", BUILD_ID), /*#__PURE__*/React.createElement("div", null, "host: ", window.location.hostname), /*#__PURE__*/React.createElement("div", null, "firebase: ", window.__fsQuizCloud ? 'loaded' : 'NOT loaded'), /*#__PURE__*/React.createElement("div", null, "authReady: ", String(authReady)), /*#__PURE__*/React.createElement("div", null, "uid: ", cloudUser ? cloudUser.uid.slice(0, 10) + '...' : 'none'), /*#__PURE__*/React.createElement("div", null, "sync: ", syncStatus), /*#__PURE__*/React.createElement("div", null, "files: ", loadedFiles.length)), /*#__PURE__*/React.createElement("label", {
+        }, /*#__PURE__*/React.createElement("div", null, "build: ", BUILD_ID), /*#__PURE__*/React.createElement("div", null, "host: ", window.location.hostname), /*#__PURE__*/React.createElement("div", null, "firebase: ", cloudLoaded ? 'loaded' : 'NOT loaded'), /*#__PURE__*/React.createElement("div", null, "authReady: ", String(authReady)), /*#__PURE__*/React.createElement("div", null, "uid: ", cloudUser ? cloudUser.uid.slice(0, 10) + '...' : 'none'), /*#__PURE__*/React.createElement("div", null, "sync: ", syncStatus), /*#__PURE__*/React.createElement("div", null, "files: ", loadedFiles.length)), /*#__PURE__*/React.createElement("label", {
           className: "cursor-pointer inline-flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-blue-300 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors"
         }, /*#__PURE__*/React.createElement("span", {
           className: "text-blue-600 font-bold"
